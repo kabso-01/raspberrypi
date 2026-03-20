@@ -1,5 +1,3 @@
-<uses-feature android:name="android.hardware.bluetooth_le" android:required="true"/>
-
 using UnityEngine;
 using TMPro;
 
