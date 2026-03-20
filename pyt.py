@@ -1,158 +1,67 @@
 using UnityEngine;
-using System;
+using TMPro;
 
-public class BLEManager : MonoBehaviour
+public class VitalSignsUI : MonoBehaviour
 {
     // =====================================================
-    // UUIDs — identiques à ble_server_radar.py sur la Raspi
+    // Glisse tes TextMeshPro depuis la scène Unity
+    // dans ces 3 champs dans l'Inspector
     // =====================================================
-    public static readonly string SERVICE_UUID = "12345678-1234-1234-1234-123456789abc";
-    public static readonly string CHAR_UUID    = "12345678-1234-1234-1234-123456789def";
-    public static readonly string DEVICE_NAME  = "HrrmonieRadar";
+    [Header("Références UI — à assigner dans l'Inspector")]
+    [SerializeField] private TextMeshProUGUI hrText;
+    [SerializeField] private TextMeshProUGUI rrText;
+    [SerializeField] private TextMeshProUGUI statusText;
 
-    // =====================================================
-    // Données accessibles depuis les autres scripts
-    // =====================================================
-    public float HeartRate   { get; private set; } = 0f;
-    public float RespRate    { get; private set; } = 0f;
-    public bool  IsConnected { get; private set; } = false;
-
-    // =====================================================
-    // Singleton — accès facile depuis VitalSignsUI
-    // =====================================================
-    public static BLEManager Instance { get; private set; }
-
-    void Awake()
+    void Update()
     {
-        if (Instance != null && Instance != this) { Destroy(gameObject); return; }
-        Instance = this;
-        DontDestroyOnLoad(gameObject);
-    }
-
-    void Start()
-    {
-#if UNITY_ANDROID && !UNITY_EDITOR
-        InitBLE();
-#else
-        // En mode Editor : on simule des données pour tester l'UI
-        Debug.Log("[BLE] Mode Editor — simulation activée");
-        InvokeRepeating(nameof(SimulateData), 2f, 1f);
-#endif
-    }
-
-    // =====================================================
-    // Init BLE (Android uniquement)
-    // =====================================================
-    void InitBLE()
-    {
-        BluetoothLEHardwareInterface.Initialize(true, false,
-            () =>
-            {
-                Debug.Log("[BLE] Initialisé — démarrage du scan...");
-                ScanForDevice();
-            },
-            (error) =>
-            {
-                Debug.LogError("[BLE] Erreur init : " + error);
-            }
-        );
-    }
-
-    void ScanForDevice()
-    {
-        BluetoothLEHardwareInterface.ScanForPeripheralsWithServices(
-            new string[] { SERVICE_UUID },
-            (address, name) =>
-            {
-                Debug.Log($"[BLE] Trouvé : {name} ({address})");
-                if (name.Contains(DEVICE_NAME))
-                {
-                    BluetoothLEHardwareInterface.StopScan();
-                    ConnectToDevice(address);
-                }
-            },
-            null
-        );
-    }
-
-    void ConnectToDevice(string address)
-    {
-        BluetoothLEHardwareInterface.ConnectToPeripheral(address,
-            (addr) =>
-            {
-                Debug.Log("[BLE] Connecté à " + addr);
-                IsConnected = true;
-            },
-            null,
-            (addr, serviceUUID, charUUID) =>
-            {
-                if (charUUID.ToUpper() == CHAR_UUID.ToUpper())
-                    SubscribeToNotifications(addr);
-            },
-            (addr) =>
-            {
-                Debug.LogWarning("[BLE] Déconnecté — relance du scan...");
-                IsConnected = false;
-                ScanForDevice();
-            }
-        );
-    }
-
-    void SubscribeToNotifications(string address)
-    {
-        BluetoothLEHardwareInterface.SubscribeCharacteristicWithDeviceAddress(
-            address, SERVICE_UUID, CHAR_UUID,
-            null,
-            (addr, characteristic, bytes) =>
-            {
-                ParseData(bytes);
-            }
-        );
-    }
-
-    // =====================================================
-    // Lecture JSON {"hr": 72.5, "rr": 16.2}
-    // =====================================================
-    void ParseData(byte[] bytes)
-    {
-        try
+        // Vérification de sécurité : si BLEManager n'existe pas encore
+        if (BLEManager.Instance == null)
         {
-            string json = System.Text.Encoding.UTF8.GetString(bytes);
-            VitalData data = JsonUtility.FromJson<VitalData>(json);
-            HeartRate = data.hr;
-            RespRate  = data.rr;
-            Debug.Log($"[BLE] Reçu → HR={data.hr} bpm | RR={data.rr} rpm");
+            if (statusText != null)
+                statusText.text = "En attente du BLEManager...";
+            return;
         }
-        catch (Exception e)
+
+        if (BLEManager.Instance.IsConnected)
         {
-            Debug.LogError("[BLE] Erreur parsing JSON : " + e.Message);
+            if (hrText != null)
+                hrText.text = $"{BLEManager.Instance.HeartRate:F0} bpm";
+
+            if (rrText != null)
+                rrText.text = $"{BLEManager.Instance.RespRate:F1} resp/min";
+
+            if (statusText != null)
+            {
+                statusText.text  = "Connecté";
+                statusText.color = Color.green;
+            }
+        }
+        else
+        {
+            if (hrText != null)
+                hrText.text = "-- bpm";
+
+            if (rrText != null)
+                rrText.text = "-- resp/min";
+
+            if (statusText != null)
+            {
+                statusText.text  = "Recherche radar...";
+                statusText.color = Color.yellow;
+            }
         }
     }
 
     // =====================================================
-    // Simulation Editor (pour tester sans Quest)
+    // Vérifie que les références sont bien assignées
     // =====================================================
-    void SimulateData()
+    void OnValidate()
     {
-        HeartRate   = Mathf.Round(UnityEngine.Random.Range(65f, 80f) * 10f) / 10f;
-        RespRate    = Mathf.Round(UnityEngine.Random.Range(14f, 20f) * 10f) / 10f;
-        IsConnected = true;
+        if (hrText == null)
+            Debug.LogWarning("[VitalSignsUI] hrText non assigné dans l'Inspector !");
+        if (rrText == null)
+            Debug.LogWarning("[VitalSignsUI] rrText non assigné dans l'Inspector !");
+        if (statusText == null)
+            Debug.LogWarning("[VitalSignsUI] statusText non assigné dans l'Inspector !");
     }
-
-    void OnDestroy()
-    {
-#if UNITY_ANDROID && !UNITY_EDITOR
-        BluetoothLEHardwareInterface.DeInitialize(() => { });
-#endif
-    }
-}
-
-// =====================================================
-// Modèle JSON — doit correspondre exactement au Python
-// =====================================================
-[Serializable]
-public class VitalData
-{
-    public float hr;
-    public float rr;
 }
